@@ -1,2 +1,7 @@
 .env
 .idea/
+
+# Large ONNX face models — auto-downloaded on boot / fetched from the README link.
+# The curated demo dataset (app/demo/dataset/) is intentionally NOT ignored: it
+# must be committed so the read-only hosted deployment can serve it.
+models/*.onnx

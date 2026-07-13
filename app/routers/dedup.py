@@ -13,6 +13,56 @@ from app.config import settings
 
 router = APIRouter(prefix="/v1/dedup/face", tags=["deduplication"])
 
+# Identity fields persisted alongside every enrolled vector.
+_ID_FIELDS = ("customer_id", "full_name", "id_type", "id_number", "phone", "dob")
+
+
+def _require_live_inference():
+    """Reject custom-image / live-inference requests unless the real model is running.
+
+    Uploads need the ArcFace model to embed the image; on a read-only box (or one
+    without the ONNX models) that path is unavailable and would otherwise mix
+    embedding spaces with the pre-indexed gallery.
+    """
+    if not settings.inference_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": {
+                "code": "INFERENCE_DISABLED",
+                "message": "Custom image uploads and enrollment are disabled on this hosted demo.",
+                "details": "This server is too resource-constrained to run the ~200 MB face-embedding "
+                           "model, so it runs read-only and serves only the pre-indexed dataset. To "
+                           "process your own images, set up FaceSentinel locally with the ArcFace "
+                           "model (see the README)."}},
+        )
+    if dedup_service.embedding_service.get_health_status().get("embedding_mode") != "insightface":
+        raise HTTPException(
+            status_code=503,
+            detail={"error": {
+                "code": "MODEL_UNAVAILABLE",
+                "message": "The ArcFace face model is not loaded on this instance.",
+                "details": "Custom uploads/enrollment need the ONNX models present in models/. "
+                           "Add them and restart, or use the planted demo probes."}},
+        )
+
+
+def _use_live_inference() -> bool:
+    """True only when we should run the real model (enabled + models loaded)."""
+    if not settings.inference_enabled:
+        return False
+    return dedup_service.embedding_service.get_health_status().get("embedding_mode") == "insightface"
+
+
+def _engine_label(embedding_mode: str) -> str:
+    """Human, technical label for the face-embedding engine (for dashboards)."""
+    if not settings.inference_enabled:
+        return "ArcFace R50 · pre-indexed"
+    if embedding_mode == "insightface":
+        return "ArcFace R50 (512-d)"
+    if embedding_mode == "demo":
+        return "deterministic (no model)"
+    return str(embedding_mode)
+
 
 @router.post("/store", response_model=StoreResponse)
 async def store_record(
@@ -25,6 +75,7 @@ async def store_record(
     Store a new customer record with image and metadata.
     Generates embeddings and stores them in the vector database.
     """
+    _require_live_inference()
     try:
         # Validate image content type
         if image.content_type not in settings.allowed_image_types:
@@ -119,6 +170,7 @@ async def search_similar(
     Search for matching customer records based on image similarity.
     Uses vector embeddings and configurable similarity thresholds.
     """
+    _require_live_inference()
     try:
         # Validate image content type
         if image.content_type not in settings.allowed_image_types:
@@ -244,6 +296,7 @@ async def onboarding_check(
     A CLEAR face is enrolled into the gallery; duplicates and fraud alerts are
     never auto-enrolled.
     """
+    _require_live_inference()
     try:
         # Validate image content type
         if image.content_type not in settings.allowed_image_types:
@@ -365,10 +418,23 @@ async def purge_record(
 
 
 def _probe_payloads() -> list:
-    """Render the planted onboarding probes with base64 avatar images.
+    """Render the planted onboarding probes with base64 face images.
 
     Deterministic, so the UI can fetch/replay them any time without re-seeding.
+    Prefers the curated PAN-card demo dataset; falls back to the legacy
+    procedural sample gallery when the dataset is not bundled.
     """
+    from app.demo import dataset
+    if dataset.available():
+        return [{
+            "probe_id": p["probe_id"],
+            "label": p["label"],
+            "expected_verdict": p["expected_verdict"],
+            "identity": p["identity"],
+            "true_person": p["true_person"],
+            "image_b64": base64.b64encode(p["face_bytes"]).decode("ascii"),
+        } for p in dataset.probes()]
+
     from app.demo import sample_kyc
     plan = sample_kyc.build_demo_plan()
     by_id = {c["customer_id"]: c for c in sample_kyc.SAMPLE_CUSTOMERS}
@@ -386,30 +452,60 @@ def _probe_payloads() -> list:
     return out
 
 
-@router.post("/demo/seed")
-async def demo_seed(
-        reset: bool = Form(default=False, description="Purge & re-enrol existing sample customers"),
-        token: str = Depends(verify_token),
-):
-    """One-click: enrol the fictional sample-KYC gallery into the active vector DB.
-
-    Populates ~16 fictional IDBI customers (with procedurally-drawn avatar faces)
-    and returns planted onboarding probes (as base64 images) the console can
-    replay to demonstrate FRAUD / DUPLICATE / CLEAR verdicts. Designed for demo
-    embedding mode; with the full face model, seed real faces via
-    scripts/ingest_lfw.py instead.
-    """
-    from app.demo import sample_kyc
-
-    embedding_mode = dedup_service.embedding_service.get_health_status().get("embedding_mode")
-    plan = sample_kyc.build_demo_plan()
-    try:
-        os.makedirs(settings.gallery_images_dir, exist_ok=True)
-    except Exception:
-        pass
-
+async def _seed_gallery_dataset(reset: bool):
+    """Enrol the curated PAN-card gallery. Live-embeds locally, else inserts
+    the precomputed ArcFace vectors directly (read-only / no-model path)."""
+    from app.demo import dataset
+    live = _use_live_inference()
     seeded = skipped = failed = 0
-    errors = []
+    errors: list = []
+    for g in dataset.gallery():
+        cid = g["customer_id"]
+        img_path = ""
+        try:
+            img_path = os.path.join(settings.gallery_images_dir, f"{cid}.jpg")
+            with open(img_path, "wb") as fh:
+                fh.write(g["face_bytes"])
+        except Exception:
+            img_path = ""
+        meta = StoreMetadata(
+            created_on=datetime.utcnow().isoformat() + "Z",
+            image_path=img_path,
+            **{k: g.get(k) for k in _ID_FIELDS},
+        )
+        try:
+            exists = await dedup_service.vector_store.customer_exists(cid)
+            if reset and exists:
+                await dedup_service.purge_customer(cid)
+                exists = False
+            if exists:
+                skipped += 1
+                continue
+            if live:
+                await dedup_service.store_customer(cid, g["face_bytes"], meta)
+            else:
+                await dedup_service.vector_store.store_vector(cid, g["vector"], meta)
+            seeded += 1
+        except DedupException as e:
+            if getattr(e, "code", "") == "CUSTOMER_EXISTS":
+                skipped += 1
+            else:
+                failed += 1
+                if len(errors) < 5:
+                    errors.append(f"{cid}: {e.message}")
+        except Exception as e:  # noqa: BLE001
+            failed += 1
+            if len(errors) < 5:
+                errors.append(f"{cid}: {e}")
+    return seeded, skipped, failed, errors
+
+
+async def _seed_gallery_legacy(reset: bool):
+    """Legacy procedural sample gallery (used only when no dataset is bundled)."""
+    from app.demo import sample_kyc
+    plan = sample_kyc.build_demo_plan()
+    seeded = skipped = failed = 0
+    errors: list = []
     for cust in plan["gallery"]:
         cid = cust["customer_id"]
         img = sample_kyc.avatar_bytes(cust)
@@ -441,6 +537,34 @@ async def demo_seed(
             failed += 1
             if len(errors) < 5:
                 errors.append(f"{cid}: {e}")
+    return seeded, skipped, failed, errors
+
+
+@router.post("/demo/seed")
+async def demo_seed(
+        reset: bool = Form(default=False, description="Purge & re-enrol existing sample customers"),
+        token: str = Depends(verify_token),
+):
+    """One-click: enrol the curated demo gallery into the active vector DB.
+
+    Uses the bundled PAN-card demo dataset (real faces + real OCR'd identities;
+    fraud-applicant personas are fictional). Locally with the ArcFace model each
+    face is embedded live; on a read-only deployment the precomputed embeddings
+    are inserted directly (no model needed). Returns planted onboarding probes
+    (base64 faces) the console replays for FRAUD / DUPLICATE / CLEAR verdicts.
+    """
+    from app.demo import dataset
+
+    embedding_mode = dedup_service.embedding_service.get_health_status().get("embedding_mode")
+    try:
+        os.makedirs(settings.gallery_images_dir, exist_ok=True)
+    except Exception:
+        pass
+
+    if dataset.available():
+        seeded, skipped, failed, errors = await _seed_gallery_dataset(reset)
+    else:
+        seeded, skipped, failed, errors = await _seed_gallery_legacy(reset)
 
     gallery_size = await dedup_service.vector_store.count_records()
     backend = getattr(dedup_service.vector_store, "backend_name", settings.resolved_vector_backend)
@@ -453,6 +577,7 @@ async def demo_seed(
         "gallery_size": gallery_size,
         "vector_backend": backend,
         "embedding_mode": embedding_mode,
+        "inference_enabled": settings.inference_enabled,
         "probes": _probe_payloads(),
     }
 
@@ -463,22 +588,79 @@ async def demo_probes():
     return {"probes": _probe_payloads()}
 
 
+@router.post("/demo/check_probe")
+async def demo_check_probe(
+        probe_id: str = Form(..., description="Planted probe id, e.g. APP-900001"),
+        limit: Optional[int] = Form(default=10, description="Maximum candidate matches"),
+        token: str = Depends(verify_token),
+):
+    """Screen a *planted* probe against the gallery and return a fraud verdict.
+
+    Model-free by default: screens the probe's precomputed ArcFace embedding, so
+    it works on a read-only deployment with no model loaded. When live inference
+    is enabled (local + ArcFace models present) the probe face is embedded fresh
+    instead. Read-only: never enrols.
+    """
+    from app.demo import dataset
+    if not dataset.available():
+        raise HTTPException(
+            status_code=503,
+            detail={"error": {"code": "DATASET_UNAVAILABLE",
+                              "message": "The bundled demo dataset is not present on this instance.",
+                              "details": "app/demo/dataset/ (manifest.json + embeddings.npz) must be "
+                                         "deployed for the read-only demo. Seed a gallery to use custom probes."}},
+        )
+    p = dataset.probe_by_id(probe_id)
+    if not p:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"code": "PROBE_NOT_FOUND", "message": f"Unknown probe id: {probe_id}"}},
+        )
+    identity = {k: p["identity"].get(k) for k in _ID_FIELDS}
+    try:
+        if _use_live_inference():
+            embedding = await dedup_service.embedding_service.generate_embedding(
+                p["face_bytes"], context="PROBE")
+        else:
+            embedding = p["vector"]
+        result = await dedup_service.screen_embedding(
+            p["probe_id"], embedding, identity, limit=limit, enroll=False)
+        result["expected_verdict"] = p["expected_verdict"]
+        result["true_person"] = p["true_person"]
+        return result
+    except DedupException as e:
+        raise create_http_exception(e)
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={"error": {"code": "INTERNAL_ERROR",
+                              "message": "Internal server error", "details": str(e)}},
+        )
+
+
 @router.get("/stats")
 async def stats():
     """Lightweight gallery stats for dashboards / the review console."""
     backend = getattr(dedup_service.vector_store, "backend_name", settings.resolved_vector_backend)
     embedding_mode = dedup_service.embedding_service.get_health_status().get("embedding_mode")
+    engine = _engine_label(embedding_mode)
+    extra = {
+        "embedding_mode": embedding_mode,
+        "embedding_engine": engine,
+        "inference_enabled": settings.inference_enabled,
+        "live_inference": _use_live_inference(),   # true only when the real model runs
+        "thresholds": {"t_candidate": settings.t_candidate,
+                       "t_review": settings.t_review, "t_match": settings.t_match},
+    }
     try:
         count = await dedup_service.vector_store.count_records()
-        return {
-            "gallery_size": count,
-            "vector_backend": backend,
-            "index_type": settings.index_type if backend == "redis" else backend,
-            "embedding_mode": embedding_mode,
-        }
+        return {"gallery_size": count, "vector_backend": backend,
+                "index_type": settings.index_type if backend == "redis" else backend, **extra}
     except Exception as e:
         return {"gallery_size": 0, "vector_backend": backend,
-                "index_type": settings.index_type, "embedding_mode": embedding_mode, "error": str(e)}
+                "index_type": settings.index_type, **extra, "error": str(e)}
 
 
 @router.get("/health")

@@ -125,6 +125,22 @@ class DeduplicationService:
         # 1) Embed the applicant face (raises InvalidRequestError if no face found)
         embedding = await self.embedding_service.generate_embedding(image_data, context="CHECK")
 
+        return await self.screen_embedding(
+            transaction_id, embedding, identity, threshold=threshold, limit=limit,
+            enroll=True, image_data=image_data, image_path=image_path, created_on=created_on,
+        )
+
+    async def screen_embedding(self, transaction_id: str, embedding, identity: Dict,
+                               threshold: Optional[float] = None, limit: Optional[int] = None,
+                               enroll: bool = False, image_data: Optional[bytes] = None,
+                               image_path: str = "", created_on: Optional[str] = None) -> Dict:
+        """Screen a *precomputed* face embedding against the gallery -> fraud verdict.
+
+        The model-free core of :meth:`onboarding_check`: given an embedding (from
+        live inference or a precomputed vector) and the applicant identity, it
+        retrieves candidates, classifies the best match, and (only when
+        ``enroll`` is set and ``image_data`` is provided) enrols a CLEAR face.
+        """
         # 2) Retrieve candidate near-duplicates from the gallery
         t_candidate = threshold if threshold is not None else settings.t_candidate
         search_limit = limit or 10
@@ -166,8 +182,9 @@ class DeduplicationService:
 
         # 5) Store-if-clean policy (never auto-enrol a duplicate/fraud face)
         enrolled = False
-        should_enrol = (verdict == fraud_decision.CLEAR) or (
-            verdict == fraud_decision.REVIEW and settings.enroll_on_review)
+        should_enrol = enroll and image_data is not None and (
+            (verdict == fraud_decision.CLEAR) or
+            (verdict == fraud_decision.REVIEW and settings.enroll_on_review))
         if should_enrol and not await self.vector_store.customer_exists(transaction_id):
             saved_path = image_path
             try:

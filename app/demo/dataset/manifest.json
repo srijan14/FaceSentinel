@@ -1,0 +1,333 @@
+{
+  "attribution": "Faces & identity fields derive from the public 'ocr' PAN-card dataset (Roboflow Universe, panocr/ocr-qaxqg, CC BY 4.0). Fraud-applicant personas are fictional. Demo/illustrative use only.",
+  "embedding_model": "insightface ArcFace w600k_r50 (512-d)",
+  "gallery": [
+    {
+      "customer_id": "IDBI-100001",
+      "full_name": "SHANKAR BASAK",
+      "id_type": "PAN",
+      "id_number": "AFJPB1056M",
+      "dob": "28/11/1956",
+      "phone": "9702546620",
+      "city": "Delhi",
+      "face": "faces/IDBI-100001.jpg"
+    },
+    {
+      "customer_id": "IDBI-100002",
+      "full_name": "AMOL BALASAHEB GAWADE",
+      "id_type": "PAN",
+      "id_number": "AQJPG2411N",
+      "dob": "21/04/1987",
+      "phone": "9204135079",
+      "city": "Kolkata",
+      "face": "faces/IDBI-100002.jpg"
+    },
+    {
+      "customer_id": "IDBI-100003",
+      "full_name": "GANESH ROHIDASRAO BHURE",
+      "id_type": "PAN",
+      "id_number": "ALCPB8611M",
+      "dob": "01/06/1982",
+      "phone": "9877181324",
+      "city": "Chennai",
+      "face": "faces/IDBI-100003.jpg"
+    },
+    {
+      "customer_id": "IDBI-100004",
+      "full_name": "CHIRAGKUMAR HASMUKHLAL SHAH",
+      "id_type": "PAN",
+      "id_number": "AGTPS8597D",
+      "dob": "05/11/1976",
+      "phone": "9651066128",
+      "city": "Pune",
+      "face": "faces/IDBI-100004.jpg"
+    },
+    {
+      "customer_id": "IDBI-100005",
+      "full_name": "VARUNKUMAR VIPULBHAI SADRANI",
+      "id_type": "PAN",
+      "id_number": "FWAPS4125P",
+      "dob": "28/03/1393",
+      "phone": "9214771118",
+      "city": "Hyderabad",
+      "face": "faces/IDBI-100005.jpg"
+    },
+    {
+      "customer_id": "IDBI-100006",
+      "full_name": "KRUSHNA SHANKAR MEHER",
+      "id_type": "PAN",
+      "id_number": "DETPM4850N",
+      "dob": "09/05/1996",
+      "phone": "9679782459",
+      "city": "Ahmedabad",
+      "face": "faces/IDBI-100006.jpg"
+    },
+    {
+      "customer_id": "IDBI-100007",
+      "full_name": "PURNIMA SARDAR",
+      "id_type": "PAN",
+      "id_number": "IMUPS9624A",
+      "dob": "21/02/1982",
+      "phone": "9334407009",
+      "city": "Jaipur",
+      "face": "faces/IDBI-100007.jpg"
+    },
+    {
+      "customer_id": "IDBI-100008",
+      "full_name": "VINEET SHUKLA",
+      "id_type": "PAN",
+      "id_number": "DDJPS5422R",
+      "dob": "20/07/1989",
+      "phone": "9671861189",
+      "city": "Lucknow",
+      "face": "faces/IDBI-100008.jpg"
+    },
+    {
+      "customer_id": "IDBI-100009",
+      "full_name": "ABHIJIT MODAK",
+      "id_type": "PAN",
+      "id_number": "ESAPM8079M",
+      "dob": "23/05/2000",
+      "phone": "9559048946",
+      "city": "Nagpur",
+      "face": "faces/IDBI-100009.jpg"
+    },
+    {
+      "customer_id": "IDBI-100010",
+      "full_name": "DEEPAK CHOPRA",
+      "id_type": "PAN",
+      "id_number": "BFQPC7214E",
+      "dob": "31/12/1983",
+      "phone": "9815033106",
+      "city": "Bhubaneswar",
+      "face": "faces/IDBI-100010.jpg"
+    },
+    {
+      "customer_id": "IDBI-100011",
+      "full_name": "CHERYL CONSTANCE DMELLO",
+      "id_type": "PAN",
+      "id_number": "CIWPD1184J",
+      "dob": "26/03/1996",
+      "phone": "9471440813",
+      "city": "Kochi",
+      "face": "faces/IDBI-100011.jpg"
+    },
+    {
+      "customer_id": "IDBI-100012",
+      "full_name": "NIKUNJ T GOTI",
+      "id_type": "PAN",
+      "id_number": "BCGPG5116A",
+      "dob": "21/12/1993",
+      "phone": "9632315757",
+      "city": "Patna",
+      "face": "faces/IDBI-100012.jpg"
+    },
+    {
+      "customer_id": "IDBI-100013",
+      "full_name": "SIDDHESH S POLEKAR",
+      "id_type": "PAN",
+      "id_number": "AWLPP3592K",
+      "dob": "07/12/1986",
+      "phone": "9277384907",
+      "city": "Indore",
+      "face": "faces/IDBI-100013.jpg"
+    },
+    {
+      "customer_id": "IDBI-100014",
+      "full_name": "DESHPANDE MANDAR",
+      "id_type": "PAN",
+      "id_number": "BTJPD3069D",
+      "dob": "02/06/1995",
+      "phone": "9900208370",
+      "city": "Ranchi",
+      "face": "faces/IDBI-100014.jpg"
+    },
+    {
+      "customer_id": "IDBI-100015",
+      "full_name": "VINEET TIWARI",
+      "id_type": "PAN",
+      "id_number": "ANXPT3365P",
+      "dob": "16/04/1982",
+      "phone": "9915018758",
+      "city": "Guwahati",
+      "face": "faces/IDBI-100015.jpg"
+    },
+    {
+      "customer_id": "IDBI-100016",
+      "full_name": "DEV KUMAR JANA",
+      "id_type": "PAN",
+      "id_number": "BSFPJ9857A",
+      "dob": "18/06/1998",
+      "phone": "9398364742",
+      "city": "Mumbai",
+      "face": "faces/IDBI-100016.jpg"
+    },
+    {
+      "customer_id": "IDBI-100017",
+      "full_name": "PRASUN SAHA",
+      "id_type": "PAN",
+      "id_number": "JVCPS2715G",
+      "dob": "17/02/2000",
+      "phone": "9215417398",
+      "city": "Delhi",
+      "face": "faces/IDBI-100017.jpg"
+    },
+    {
+      "customer_id": "IDBI-100018",
+      "full_name": "NIRANJAN ADAK",
+      "id_type": "PAN",
+      "id_number": "BOEPA1560C",
+      "dob": "14/11/1968",
+      "phone": "9270192366",
+      "city": "Kolkata",
+      "face": "faces/IDBI-100018.jpg"
+    },
+    {
+      "customer_id": "IDBI-100019",
+      "full_name": "SUBHASH KUMAR",
+      "id_type": "PAN",
+      "id_number": "EREPK6394A",
+      "dob": "30/03/1995",
+      "phone": "9508836412",
+      "city": "Chennai",
+      "face": "faces/IDBI-100019.jpg"
+    },
+    {
+      "customer_id": "IDBI-100020",
+      "full_name": "SANTANU SHIT",
+      "id_type": "PAN",
+      "id_number": "EKVPS6045G",
+      "dob": "20/10/1991",
+      "phone": "9826604216",
+      "city": "Pune",
+      "face": "faces/IDBI-100020.jpg"
+    },
+    {
+      "customer_id": "IDBI-100021",
+      "full_name": "JYOTI LAKRA",
+      "id_type": "PAN",
+      "id_number": "AEWPL7375R",
+      "dob": "10/02/1991",
+      "phone": "9613398530",
+      "city": "Hyderabad",
+      "face": "faces/IDBI-100021.jpg"
+    },
+    {
+      "customer_id": "IDBI-100022",
+      "full_name": "CHANDA PRASAD",
+      "id_type": "PAN",
+      "id_number": "DEOPP7235D",
+      "dob": "07/04/1982",
+      "phone": "9980104530",
+      "city": "Ahmedabad",
+      "face": "faces/IDBI-100022.jpg"
+    },
+    {
+      "customer_id": "IDBI-100023",
+      "full_name": "SANJUSRI DINDA",
+      "id_type": "PAN",
+      "id_number": "FCEAC6666D",
+      "dob": "16/11/2600",
+      "phone": "9653435189",
+      "city": "Jaipur",
+      "face": "faces/IDBI-100023.jpg"
+    },
+    {
+      "customer_id": "IDBI-100024",
+      "full_name": "SAJAL BENIA",
+      "id_type": "PAN",
+      "id_number": "CLZPB8594A",
+      "dob": "15/12/1995",
+      "phone": "9457745712",
+      "city": "Lucknow",
+      "face": "faces/IDBI-100024.jpg"
+    }
+  ],
+  "probes": [
+    {
+      "probe_id": "APP-900001",
+      "label": "Same face as Jyoti Lakra \u2014 new PAN (Ruksana Parveen)",
+      "expected_verdict": "FRAUD_ALERT_DIFFERENT_IDENTITY",
+      "identity": {
+        "customer_id": "APP-900001",
+        "id_type": "PAN",
+        "full_name": "RUKSANA PARVEEN",
+        "id_number": "DFFBA1458C",
+        "phone": "9902428964",
+        "dob": "",
+        "city": "Kolkata"
+      },
+      "true_person": "Jyoti Lakra",
+      "matches_customer_id": "IDBI-100021",
+      "face": "probes/APP-900001.jpg"
+    },
+    {
+      "probe_id": "APP-900002",
+      "label": "Same face as Chanda Prasad \u2014 new PAN (Sunita Devi)",
+      "expected_verdict": "FRAUD_ALERT_DIFFERENT_IDENTITY",
+      "identity": {
+        "customer_id": "APP-900002",
+        "id_type": "PAN",
+        "full_name": "SUNITA DEVI",
+        "id_number": "DACCB4546D",
+        "phone": "9151581816",
+        "dob": "",
+        "city": "Patna"
+      },
+      "true_person": "Chanda Prasad",
+      "matches_customer_id": "IDBI-100022",
+      "face": "probes/APP-900002.jpg"
+    },
+    {
+      "probe_id": "APP-900003",
+      "label": "Same face as Sanjusri Dinda \u2014 new PAN (Imran Qureshi)",
+      "expected_verdict": "FRAUD_ALERT_DIFFERENT_IDENTITY",
+      "identity": {
+        "customer_id": "APP-900003",
+        "id_type": "PAN",
+        "full_name": "IMRAN QURESHI",
+        "id_number": "DAECE2147C",
+        "phone": "9262919162",
+        "dob": "",
+        "city": "Mumbai"
+      },
+      "true_person": "Sanjusri Dinda",
+      "matches_customer_id": "IDBI-100023",
+      "face": "probes/APP-900003.jpg"
+    },
+    {
+      "probe_id": "APP-900004",
+      "label": "Re-KYC of Sajal Benia (same identity)",
+      "expected_verdict": "DUPLICATE_SAME_IDENTITY",
+      "identity": {
+        "customer_id": "APP-900004",
+        "id_type": "PAN",
+        "full_name": "SAJAL BENIA",
+        "id_number": "CLZPB8594A",
+        "phone": "9457745712",
+        "dob": "15/12/1995",
+        "city": "Lucknow"
+      },
+      "true_person": "Sajal Benia",
+      "matches_customer_id": "IDBI-100024",
+      "face": "probes/APP-900004.jpg"
+    },
+    {
+      "probe_id": "APP-900005",
+      "label": "New applicant Gohel Prashantkumar P (not enrolled)",
+      "expected_verdict": "CLEAR",
+      "identity": {
+        "customer_id": "APP-900005",
+        "id_type": "PAN",
+        "full_name": "GOHEL PRASHANTKUMAR P",
+        "id_number": "ALXPG8609H",
+        "phone": "9193203095",
+        "dob": "17/09/1985",
+        "city": "Surat"
+      },
+      "true_person": "Gohel Prashantkumar P",
+      "matches_customer_id": null,
+      "face": "probes/APP-900005.jpg"
+    }
+  ]
+}

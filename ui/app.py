@@ -129,16 +129,21 @@ def show_thumb(col, image_bytes, image_path, caption):
 def render_result(res: dict, query_image_bytes=None):
     verdict = res.get("verdict", "?")
     st.markdown(banner_html(verdict), unsafe_allow_html=True)
+    # Show only the faces that are an actual match (>= review threshold). Lower
+    # candidates are just nearest neighbours retrieved by the search and only
+    # clutter the fraud story, so we hide them — the demo shows the real signal.
+    all_matches = res.get("matches", [])
+    sig = [m for m in all_matches if float(m.get("similarity_score", 0)) >= T_REVIEW]
     c1, c2 = st.columns([1, 1])
     with c1:
         st.markdown(risk_meter_html(int(res.get("risk_score", 0))), unsafe_allow_html=True)
     with c2:
         st.markdown(f"**Enrolled to gallery:** {'yes' if res.get('enrolled') else 'no — held'}  \n"
-                    f"**Candidate matches:** {res.get('total_matches', 0)}")
+                    f"**Matching face(s) found:** {len(sig)}")
     st.markdown("**Why:** " + " ".join(res.get("reason_codes", [])), help="Explainability reason codes")
     st.markdown(chips_html(res.get("reason_codes", [])), unsafe_allow_html=True)
 
-    st.markdown("#### Applicant vs. gallery matches")
+    st.markdown("#### Applicant vs. matched identity")
     cols = st.columns([1, 3])
     with cols[0]:
         if query_image_bytes:
@@ -146,23 +151,29 @@ def render_result(res: dict, query_image_bytes=None):
         qi = res.get("query_identity", {})
         st.markdown(f"**{qi.get('full_name') or '—'}**  \n{qi.get('id_type') or ''} {qi.get('id_number') or ''}")
     with cols[1]:
-        matches = res.get("matches", [])
-        if not matches:
-            st.info("No near-duplicate faces in the gallery.")
-        for m in matches:
-            sim = float(m.get("similarity_score", 0)) * 100
+        if not sig:
+            st.success("✅ No matching face already in the gallery — no duplicate or fraud signal.")
+        for m in sig:
+            score = float(m.get("similarity_score", 0))
+            sim = score * 100
             same = m.get("identity_match")
-            badge = ("<span style='color:#0B8043;font-weight:700;'>● SAME IDENTITY</span>" if same
-                     else "<span style='color:#C5221F;font-weight:700;'>▲ DIFFERENT IDENTITY</span>")
+            if score >= T_MATCH and not same:
+                badge = ("<span style='color:#C5221F;font-weight:700;'>🚨 SAME FACE · "
+                         "DIFFERENT government ID → POTENTIAL FRAUD</span>")
+            elif score >= T_MATCH and same:
+                badge = ("<span style='color:#E37400;font-weight:700;'>🔁 SAME FACE · "
+                         "SAME ID → duplicate (re-KYC)</span>")
+            else:
+                badge = "<span style='color:#E37400;font-weight:700;'>⚠ POSSIBLE MATCH → review</span>"
             mc = st.columns([1, 3])
-            show_thumb(mc[0], None, m.get("image_path"), f"{sim:.1f}% match")
+            show_thumb(mc[0], None, m.get("image_path"), f"{sim:.1f}% face match")
             ident = m.get("identity", {})
             diffs = ", ".join(m.get("field_diffs", [])) or "—"
             mc[1].markdown(
-                f"**{ident.get('full_name') or '—'}** · {ident.get('id_type') or ''} "
+                f"Already enrolled as **{ident.get('full_name') or '—'}** · {ident.get('id_type') or ''} "
                 f"{ident.get('id_number') or ''}  \n"
-                f"txn `{m.get('transaction_id')}` · similarity **{sim:.1f}%** · {badge}  \n"
-                f"<span style='font-size:12px;color:#5f6368;'>differing fields: {diffs}</span>",
+                f"txn `{m.get('transaction_id')}` · face similarity **{sim:.1f}%** · {badge}  \n"
+                f"<span style='font-size:12px;color:#5f6368;'>differing identity fields: {diffs}</span>",
                 unsafe_allow_html=True)
 
 
@@ -197,6 +208,7 @@ def get_probes(client):
         probes = []
         for p in data.get("probes", []):
             probes.append({
+                "probe_id": p.get("probe_id"),
                 "label": p["label"],
                 "expected_verdict": p["expected_verdict"],
                 "identity": p["identity"],
@@ -231,26 +243,48 @@ except Exception as e:
 svc = health.get("services", {})
 backend = (stats.get("vector_backend") or svc.get("vector_backend") or "—")
 emode = (stats.get("embedding_mode") or svc.get("embedding_mode") or "—")
+inference_enabled = stats.get("inference_enabled", svc.get("inference_enabled", True))
+engine = stats.get("embedding_engine") or (
+    "ArcFace R50 (512-d)" if emode == "insightface" else
+    "deterministic (no model)" if emode == "demo" else str(emode))
+if not inference_enabled:
+    engine = "ArcFace R50 · pre-indexed"
 gallery_size = stats.get("gallery_size", "?")
+# live_inference is true only when the real model is actually running (enabled + loaded)
+live_inference = stats.get("live_inference", inference_enabled and emode == "insightface")
+_thr = stats.get("thresholds") or {}
+T_REVIEW = float(_thr.get("t_review", 0.60))
+T_MATCH = float(_thr.get("t_match", 0.65))
+# Message shown wherever a custom-image action is unavailable.
+if not inference_enabled:
+    READONLY_MSG = ("🔒 **Read-only demo.** This server is too lightweight to host the ~200 MB "
+                    "face-embedding model, so live inference and **custom uploads / enrollment are "
+                    "disabled** — it screens only the pre-indexed gallery. **Run FaceSentinel locally** "
+                    "(with the ArcFace model) to process your own images. See the README.")
+else:
+    READONLY_MSG = ("🔒 The ArcFace model isn't loaded on this instance, so custom uploads / enrollment "
+                    "are unavailable. Add the ONNX models to `models/` and restart, or run locally.")
 
 st.sidebar.markdown(f"{'🟢' if api_ok else '🔴'} **API {'healthy' if api_ok else 'unhealthy'}**")
-emode_label = "demo" if emode == "demo" else ("production" if emode == "insightface" else str(emode))
+_emb_note = ("  ·  _read-only (pre-indexed)_" if not inference_enabled else
+            "  ·  _live inference_" if emode == "insightface" else
+            "  ·  _deterministic (no model)_" if emode == "demo" else "")
 st.sidebar.markdown(
     f"**Vector DB:** `{backend}`  \n"
-    f"**Embedding:** `{emode_label}`"
-    + ("  ·  _demo (no model)_" if emode == "demo" else "  ·  _full engine_" if emode == "insightface" else "")
+    f"**Embedding:** `{engine}`" + _emb_note
 )
 st.sidebar.markdown(f"**Gallery:** {gallery_size} faces")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🌱 Demo data")
 if st.sidebar.button("Seed sample KYC gallery", use_container_width=True, type="primary"):
-    with st.spinner("Enrolling fictional IDBI customers into the vector DB…"):
+    with st.spinner("Enrolling the sample KYC customers into the vector DB…"):
         try:
             r = client.seed_demo(reset=False)
             if r.status_code == 200:
                 data = r.json()
                 st.session_state["probes"] = [{
+                    "probe_id": p.get("probe_id"),
                     "label": p["label"], "expected_verdict": p["expected_verdict"],
                     "identity": p["identity"],
                     "image_bytes": base64.b64decode(p["image_b64"]) if p.get("image_b64") else None,
@@ -281,16 +315,21 @@ st.markdown(hero_html(), unsafe_allow_html=True)
 st.markdown(pipeline_html(), unsafe_allow_html=True)
 
 # KPI row
+_emb_kpi = ("ArcFace R50" if (inference_enabled and emode == "insightface") else
+            "Pre-indexed" if not inference_enabled else
+            "Deterministic" if emode == "demo" else str(emode).title())
+_emb_help = ("ArcFace ResNet-50 (w600k_r50) — 512-d face embeddings"
+             + ("" if inference_enabled else "; served from precomputed index (read-only demo)"))
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("Gallery faces", gallery_size)
 k2.metric("Vector DB", str(backend).title())
-k3.metric("Embedding", "Demo" if emode == "demo" else ("Production" if emode == "insightface" else str(emode)))
+k3.metric("Embedding", _emb_kpi, help=_emb_help)
 k4.metric("API", "Healthy" if api_ok else "Down")
 
 empty_gallery = (isinstance(gallery_size, int) and gallery_size == 0)
 if empty_gallery:
-    st.warning("👈 The gallery is empty. Click **Seed sample KYC gallery** in the sidebar to load "
-               "16 fictional customers and planted fraud probes, then try the **Onboarding Check** below.")
+    st.warning("👈 The gallery is empty. Click **Seed sample KYC gallery** in the sidebar to load the "
+               "sample customers and planted fraud probes, then try the **Onboarding Check** below.")
 
 tab_check, tab_enroll, tab_batch, tab_bench, tab_about = st.tabs(
     ["🎯 Onboarding Check", "➕ Enroll Customer", "🚨 Batch Probe Test", "📊 Benchmarks", "ℹ️ About"])
@@ -302,14 +341,17 @@ with tab_check:
     probes = get_probes(client)
     probe_map = {p["label"]: p for p in probes}
 
-    src = st.radio("Applicant image source", ["Planted demo probe", "Upload"], horizontal=True)
-    img_bytes, img_name, preset = None, "applicant.jpg", {}
+    sources = ["Planted demo probe"] + (["Upload"] if live_inference else [])
+    src = st.radio("Applicant image source", sources, horizontal=True)
+    if not live_inference:
+        st.info(READONLY_MSG)
+    img_bytes, img_name, preset, selected_probe = None, "applicant.jpg", {}, None
     if src == "Planted demo probe" and probe_map:
         sel = st.selectbox("Choose a probe", list(probe_map.keys()))
-        p = probe_map[sel]
-        img_bytes = p.get("image_bytes")
-        preset = p.get("identity", {})
-        st.caption(f"Expected verdict for this probe: **{p['expected_verdict']}**")
+        selected_probe = probe_map[sel]
+        img_bytes = selected_probe.get("image_bytes")
+        preset = selected_probe.get("identity", {})
+        st.caption(f"Expected verdict for this probe: **{selected_probe['expected_verdict']}**")
     elif src == "Planted demo probe":
         st.info("No probes yet. Click **Seed sample KYC gallery** in the sidebar first.")
     else:
@@ -330,49 +372,60 @@ with tab_check:
         submitted = st.form_submit_button("🔍 Run onboarding check", type="primary", use_container_width=True)
 
     if submitted:
-        if not img_bytes:
-            st.error("Please choose or upload an applicant image.")
-        else:
-            identity = {"full_name": full_name, "id_type": id_type, "id_number": id_number,
-                        "phone": phone, "customer_id": customer_id}
-            txn = f"CHK-{int(time.time()*1000)}"
-            try:
+        try:
+            # Planted probes are screened server-side by id (precomputed or live
+            # embedding) so they work even on the read-only, no-model deployment.
+            if selected_probe is not None and selected_probe.get("probe_id"):
+                r = client.check_probe(selected_probe["probe_id"], limit=limit)
+                if r.status_code == 200:
+                    render_result(r.json(), query_image_bytes=img_bytes)
+                else:
+                    st.error(f"{r.status_code}: {r.text[:300]}")
+            elif not img_bytes:
+                st.error("Please choose or upload an applicant image.")
+            else:
+                identity = {"full_name": full_name, "id_type": id_type, "id_number": id_number,
+                            "phone": phone, "customer_id": customer_id}
+                txn = f"CHK-{int(time.time()*1000)}"
                 r = client.check(img_bytes, img_name, txn, identity, limit=limit)
                 if r.status_code == 200:
                     render_result(r.json(), query_image_bytes=img_bytes)
                 else:
                     st.error(f"{r.status_code}: {r.text[:300]}")
-            except Exception as ex:
-                st.error(f"Request failed: {ex}")
+        except Exception as ex:
+            st.error(f"Request failed: {ex}")
 
 # ----------------------------- Enroll --------------------------------------
 with tab_enroll:
     st.markdown("Add a known customer's face to the gallery.")
-    up = st.file_uploader("Customer face", type=["jpg", "jpeg", "png"], key="enroll_up")
-    with st.form("enroll_form"):
-        a, b = st.columns(2)
-        e_name = a.text_input("Full name")
-        e_phone = b.text_input("Phone")
-        c, d, e = st.columns(3)
-        e_idtype = c.selectbox("ID type", ID_TYPES, key="e_idtype")
-        e_idnum = d.text_input("ID number")
-        e_cust = e.text_input("Customer/App ID")
-        e_sub = st.form_submit_button("➕ Enroll", type="primary")
-    if e_sub:
-        if not up:
-            st.error("Upload a face image first.")
-        else:
-            identity = {"full_name": e_name, "id_type": e_idtype, "id_number": e_idnum,
-                        "phone": e_phone, "customer_id": e_cust}
-            txn = f"ENR-{int(time.time()*1000)}"
-            try:
-                r = client.store(up.getvalue(), up.name, txn, identity)
-                if r.status_code == 200:
-                    st.success(f"Enrolled as {txn}. Gallery now: {client.stats().get('gallery_size')} faces.")
-                else:
-                    st.error(f"{r.status_code}: {r.text[:300]}")
-            except Exception as ex:
-                st.error(f"Request failed: {ex}")
+    if not live_inference:
+        st.info(READONLY_MSG)
+    else:
+        up = st.file_uploader("Customer face", type=["jpg", "jpeg", "png"], key="enroll_up")
+        with st.form("enroll_form"):
+            a, b = st.columns(2)
+            e_name = a.text_input("Full name")
+            e_phone = b.text_input("Phone")
+            c, d, e = st.columns(3)
+            e_idtype = c.selectbox("ID type", ID_TYPES, key="e_idtype")
+            e_idnum = d.text_input("ID number")
+            e_cust = e.text_input("Customer/App ID")
+            e_sub = st.form_submit_button("➕ Enroll", type="primary")
+        if e_sub:
+            if not up:
+                st.error("Upload a face image first.")
+            else:
+                identity = {"full_name": e_name, "id_type": e_idtype, "id_number": e_idnum,
+                            "phone": e_phone, "customer_id": e_cust}
+                txn = f"ENR-{int(time.time()*1000)}"
+                try:
+                    r = client.store(up.getvalue(), up.name, txn, identity)
+                    if r.status_code == 200:
+                        st.success(f"Enrolled as {txn}. Gallery now: {client.stats().get('gallery_size')} faces.")
+                    else:
+                        st.error(f"{r.status_code}: {r.text[:300]}")
+                except Exception as ex:
+                    st.error(f"Request failed: {ex}")
 
 # ----------------------------- Batch Probe Test ----------------------------
 with tab_batch:
@@ -406,12 +459,15 @@ with tab_batch:
         rows, correct = [], 0
         prog = st.progress(0.0)
         for i, p in enumerate(probes):
-            if not p.get("image_bytes"):
-                continue
             ident = p["identity"]
             try:
-                r = client.check(p["image_bytes"], f"probe_{i}.jpg",
-                                 f"BATCH-{i}-{int(time.time()*1000)}", ident, limit=limit)
+                if p.get("probe_id"):
+                    r = client.check_probe(p["probe_id"], limit=limit)
+                elif p.get("image_bytes"):
+                    r = client.check(p["image_bytes"], f"probe_{i}.jpg",
+                                     f"BATCH-{i}-{int(time.time()*1000)}", ident, limit=limit)
+                else:
+                    continue
                 got = r.json().get("verdict", "ERR") if r.status_code == 200 else f"HTTP{r.status_code}"
                 risk = r.json().get("risk_score", "") if r.status_code == 200 else ""
             except Exception as ex:
@@ -459,8 +515,8 @@ with tab_about:
 has already been enrolled under a **different identity** — the root of duplicate accounts, mule accounts and
 synthetic-identity fraud (India: ₹36,014 cr reported bank fraud in FY25; ~1.33M mule accounts frozen in 2025).
 
-**How it works.** Every enrolled face becomes an irreversible 512-d biometric template via a proprietary
-deep-metric embedding engine. At onboarding we run a
+**How it works.** Every enrolled face becomes an irreversible 512-d biometric template via
+**ArcFace R50** (InsightFace `w600k_r50`, ONNX, CPU). At onboarding we run a
 **1:N similarity search** across the whole customer base (**Pinecone** or Redis vector DB); when a high face
 match collides with a **different** government ID, we raise a **FRAUD ALERT** with a risk score, reason codes
 and a review queue — before the account goes live.
@@ -471,9 +527,15 @@ and a review queue — before the account goes live.
 - 🔁 `DUPLICATE_SAME_IDENTITY` — same person, same ID → legitimate re-KYC.
 - 🚨 `FRAUD_ALERT_DIFFERENT_IDENTITY` — same face, **different** government ID → the fraud case.
 
-**Demo mode.** This deployment can run with deterministic *demo* embeddings (no 200 MB model), so the whole
-Pinecone pipeline is demonstrable anywhere. In demo mode, matching is exact-image based; enable the
-production embedding engine (see the repository README) for true cross-photo face matching.
+**Deployment modes.** *Local* runs the full ArcFace pipeline — enroll and screen any face live.
+This *hosted* demo is intentionally **read-only** (a small server can't host 200 MB-model inference):
+it serves a **pre-indexed dataset** and replays planted probes from **precomputed embeddings**, so custom
+uploads are disabled. Run the project locally (see the README) to process your own images end-to-end.
+
+**Demo data.** Faces and identity fields come from a **public PAN-card dataset**
+(Roboflow Universe `panocr/ocr-qaxqg`, CC BY 4.0). Fraud/duplicate probes are a *genuinely different photo*
+of the same person, so matching is real cross-photo recognition. **Fraud-applicant personas are fictional.**
+Illustrative use only.
 
 **Privacy by design (DPDP-ready).** Only irreversible embeddings are stored; the `/purge` endpoint is the
 right-to-erasure; runs fully on-prem or in your own managed Pinecone — no data leaves the bank.

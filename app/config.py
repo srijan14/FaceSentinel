@@ -54,6 +54,17 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
     embedding_mode: str = "auto"
 
+    # ------------------------------------------------------------------ #
+    # Hosted read-only demo switch.
+    #   True  (default, local dev): live ArcFace inference + custom image
+    #         uploads are enabled; the gallery is indexed by running the model.
+    #   False (small hosted box, e.g. Linode): live inference and custom
+    #         uploads are DISABLED. The app serves only the pre-indexed demo
+    #         dataset and screens planted probes via *precomputed* embeddings,
+    #         so no 200 MB model needs to load. Set INFERENCE_ENABLED=false.
+    # ------------------------------------------------------------------ #
+    inference_enabled: bool = True
+
     # Fraud-decision thresholds, in the rescaled [0,1] similarity space
     # (1.0 = identical face, ~0.5 = unrelated). Tuned via benchmarks/accuracy_lfw.py.
     t_candidate: float = 0.50   # retrieve neighbours at/above this (recall floor)

@@ -46,6 +46,12 @@ class DedupClient:
         return requests.post(f"{self.base_url}/v1/dedup/face/check",
                              headers=self._auth, files=files, data=data, timeout=self.timeout)
 
+    def check_probe(self, probe_id: str, limit: int = 10) -> requests.Response:
+        """Screen a planted probe by id (uses precomputed / live embedding server-side)."""
+        return requests.post(f"{self.base_url}/v1/dedup/face/demo/check_probe",
+                             headers=self._auth,
+                             data={"probe_id": probe_id, "limit": str(limit)}, timeout=self.timeout)
+
     def purge(self, transaction_id: str) -> requests.Response:
         return requests.post(f"{self.base_url}/v1/dedup/face/purge",
                              headers={**self._auth, "Content-Type": "application/json"},

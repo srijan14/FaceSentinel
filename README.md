@@ -45,7 +45,7 @@ Applicant face ─▶ face detect ─▶ 512-d embedding ─▶ 1:N vector searc
 | Face model | `app/services/embedding.py` → vendored face engine in `app/core/` (+ `demo_embedding.py` model-free mode) |
 | Vector DB | `app/services/vector_store.py` factory → `pinecone_service.py` (Pinecone) or `redis_service.py` (RediSearch), 512-d, COSINE |
 | Fraud engine | `app/services/fraud_decision.py` (pure, unit-tested) |
-| Sample KYC / seeding | `app/demo/sample_kyc.py` + `scripts/seed_pinecone.py` + `/demo/seed` endpoint |
+| Demo dataset / seeding | `app/demo/dataset/` (curated PAN-card gallery) + `app/demo/dataset.py` loader + `/demo/seed` endpoint |
 | Review console | `ui/app.py` (Streamlit) → talks to the API over HTTP |
 
 ---
@@ -82,6 +82,75 @@ Then click **🌱 Seed sample KYC gallery** in the console sidebar (or run
 `python scripts/seed_pinecone.py`) and try the **🎯 Onboarding Check** tab. The planted
 "same face / different PAN" probe returns **🚨 FRAUD ALERT**, re-KYC returns **DUPLICATE**,
 and a new applicant returns **CLEAR**.
+
+## Demo dataset
+
+The bundled demo gallery (`app/demo/dataset/`) is built from a **public PAN-card dataset**
+([Roboflow Universe `panocr/ocr-qaxqg`](https://universe.roboflow.com/panocr/ocr-qaxqg),
+CC BY 4.0). It holds **24 enrolled customers** (real face crops + real OCR'd name / PAN / DOB)
+and **5 planted onboarding probes**:
+
+| Planted probe | Scenario | Expected verdict |
+|---|---|---|
+| Same face, **different photo**, new PAN (×3) | duplicate / synthetic-identity fraud | `FRAUD_ALERT_DIFFERENT_IDENTITY` |
+| Same face, **different photo**, same PAN | legitimate re-KYC | `DUPLICATE_SAME_IDENTITY` |
+| A genuinely new applicant | not enrolled | `CLEAR` |
+
+Each fraud/duplicate probe is a **genuinely different photo of the same person** (surfaced by
+clustering ArcFace embeddings across the dataset), so matching is real cross-photo recognition
+— not exact-image comparison. **Fraud-applicant personas (name + PAN) are fictional**; enrolled
+identities are real fields from the public dataset. Illustrative / hackathon use only — the
+vector store persists **only irreversible embeddings**, and `POST /purge` is the right-to-erasure hook.
+
+Rebuild it from your own copy of the source dataset with:
+
+```bash
+python scripts/build_demo_dataset.py --src /path/to/ocr.v6i.tensorflow/train
+```
+
+## Deployment modes
+
+`INFERENCE_ENABLED` (env var, default `true`) picks between two modes:
+
+| | **Local — full inference** (`true`) | **Hosted read-only** (`false`) |
+|---|---|---|
+| Face model | ArcFace R50 (`w600k_r50`) loaded, embeds live | **not loaded** — serves precomputed embeddings |
+| Custom upload / enroll | ✅ enabled | 🔒 disabled (`/store` `/search` `/check` → **403**) |
+| Planted probes | live-embedded | screened via precomputed vectors |
+| Footprint | needs the ~190 MB ONNX models | tiny — fits a small VPS (e.g. Linode) |
+
+The public demo runs **read-only** because a small server can't host live 200 MB-model
+inference. **To process your own images, run FaceSentinel locally** with the models present and
+`INFERENCE_ENABLED=true` — the **Enroll Customer** and **Upload** tabs then run any face through
+the full ArcFace pipeline.
+
+### Run locally with the full model
+
+```bash
+pip install -r requirements.txt                    # full face-model runtime
+# place det_10g.onnx + w600k_r50.onnx in models/   (Google Drive link above)
+export API_KEY=dev-local-key-change-me
+export VECTOR_BACKEND=memory                        # zero external services
+export EMBEDDING_MODE=auto INFERENCE_ENABLED=true   # ArcFace when models are present
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+streamlit run ui/app.py                             # http://localhost:8501
+```
+
+Click **🌱 Seed sample KYC gallery**, then screen the planted probes or upload your own faces.
+
+### Deploy the hosted read-only demo
+
+```bash
+pip install -r requirements-demo.txt               # light deps, no model runtime
+export API_KEY=change-me
+export VECTOR_BACKEND=memory INFERENCE_ENABLED=false EMBEDDING_MODE=demo
+uvicorn app.main:app --host 0.0.0.0 --port 8000    # no model load; ~instant boot
+streamlit run ui/app.py
+```
+
+The dataset (`app/demo/dataset/`, ~0.6 MB) ships in the repo, so the box needs **no GPU, no
+model download, and no external database**. Seed once, and every planted probe replays its
+verdict from precomputed embeddings.
 
 ## API
 
@@ -126,10 +195,15 @@ curl -X POST http://localhost:8000/v1/dedup/face/check \
 - `POST /store` — enrol a known customer face (`image`, `transaction_id`, `metadata` JSON).
 - `POST /search` — raw 1:N similarity search (`image`, `threshold`, `limit`).
 - `POST /purge` — delete a record (`{"transaction_id": "..."}`) — the **right-to-erasure** hook.
-- `POST /demo/seed` — one-click: enrol the fictional sample-KYC gallery + return planted probes.
-- `GET  /demo/probes` — the planted onboarding probes (base64 avatars) for the console.
-- `GET  /stats` — gallery size + active vector backend + embedding mode.
+- `POST /demo/seed` — one-click: enrol the curated demo gallery + return planted probes.
+- `POST /demo/check_probe` — screen a planted probe by id (`probe_id`); works with **no model** (uses precomputed embeddings), so the read-only demo can replay verdicts.
+- `GET  /demo/probes` — the planted onboarding probes (base64 faces) for the console.
+- `GET  /stats` — gallery size + vector backend + embedding engine + `inference_enabled`.
 - `GET  /health` — vector-store + model readiness (reports backend & embedding mode).
+
+> In **hosted read-only** mode (`INFERENCE_ENABLED=false`, see below) the upload endpoints
+> `POST /store`, `/search`, `/check` return **403 `INFERENCE_DISABLED`** — screening runs only
+> through the pre-indexed dataset via `/demo/check_probe`.
 
 Identity metadata fields (all optional): `customer_id`, `full_name`, `id_type`, `id_number`,
 `phone`, `dob`. `id_number` is the authoritative identity key for the fraud decision.

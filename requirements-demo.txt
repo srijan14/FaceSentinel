@@ -1,0 +1,31 @@
+# Lightweight dependency set for the Pinecone + demo-embedding deployment.
+#
+# This is everything FaceSentinel needs to run WITHOUT the ~200 MB ONNX
+# face-model stack (no face-model runtime, onnxruntime, opencv, scikit-image).
+# It runs in EMBEDDING_MODE=demo (deterministic embeddings) against a Pinecone
+# (or Redis) vector DB — ideal for a fast, cheap hosted demo link.
+#
+# For true cross-photo face matching, use the full requirements.txt with
+# EMBEDDING_MODE=insightface and the ONNX models in models/.
+
+# --- API ---
+fastapi==0.116.1
+starlette==0.47.2
+uvicorn==0.24.0
+python-multipart==0.0.6
+pydantic==2.11.7
+pydantic-settings==2.10.1
+python-dotenv==1.0.0
+
+# --- Vector DB backends ---
+pinecone>=5.0.0
+redis==5.0.1
+hiredis==3.2.1
+
+# --- Core numerics + demo avatars ---
+numpy==1.24.4
+Pillow==10.1.0
+
+# --- Console + client ---
+streamlit==1.56.0
+requests==2.32.4

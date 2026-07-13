@@ -1,0 +1,61 @@
+# Local stack. Default backend is Redis (below). To use managed Pinecone instead,
+# set PINECONE_API_KEY (and optionally VECTOR_BACKEND=pinecone) in .env — the api/ui
+# then talk to Pinecone and the redis service is unused. For a model-free demo set
+# EMBEDDING_MODE=demo and AUTO_DOWNLOAD_MODELS=false.
+services:
+  redis:
+    image: redis/redis-stack-server:latest   # bundles the RediSearch vector engine (FT.*)
+    ports:
+      - "6379:6379"
+    command: redis-server --loadmodule /opt/redis-stack/lib/redisearch.so --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # Vector backend: 'auto' picks Pinecone when PINECONE_API_KEY is set, else Redis.
+      - VECTOR_BACKEND=${VECTOR_BACKEND:-auto}
+      - PINECONE_API_KEY=${PINECONE_API_KEY:-}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME:-facesentinel-kyc}
+      - REDIS_URL=redis://redis:6379/0
+      # Embedding: 'auto' uses the full face model when models/ has ONNX weights, else 'demo'.
+      - EMBEDDING_MODE=${EMBEDDING_MODE:-auto}
+      - API_KEY=${API_KEY:-dev-local-key-change-me}
+      - AUTO_DOWNLOAD_MODELS=${AUTO_DOWNLOAD_MODELS:-true}
+    volumes:
+      - ./models:/app/models        # persist downloaded ONNX weights across rebuilds
+      - ./data:/app/data            # gallery images for review-console thumbnails
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  ui:
+    build: .
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api
+    environment:
+      - API_URL=http://api:8000
+      - API_KEY=${API_KEY:-dev-local-key-change-me}
+      - AUTO_DOWNLOAD_MODELS=false
+    volumes:
+      - ./data:/app/data
+    command: streamlit run ui/app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
+
+volumes:
+  redis_data:

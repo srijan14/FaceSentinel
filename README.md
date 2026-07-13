@@ -53,7 +53,8 @@ Applicant face ─▶ face detect ─▶ 512-d embedding ─▶ 1:N vector searc
 ## Quick start (Docker — one command)
 
 Requires Docker with Compose. Brings up Redis Stack, the API (auto-downloads the ONNX models
-on first boot), and the Streamlit console.
+on first boot), and the Streamlit console. If the auto-download fails, fetch the weights
+manually from [Google Drive](https://drive.google.com/drive/folders/1O6YbF41QSwPOnuPUVspTmPOX9kkvP5ar?usp=sharing).
 
 ```bash
 cp .env.example .env            # optional: set your API_KEY

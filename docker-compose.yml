@@ -46,7 +46,7 @@ services:
   ui:
     build: .
     ports:
-      - "8502:8502"
+      - "8502:8501"
     depends_on:
       - api
     environment:
